@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="theme-color" content="#0d1117"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="M Club"/>
+<title>M Club</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{font-family:'DM Sans',sans-serif;background:#0d1117;color:#e6edf3;-webkit-tap-highlight-color:transparent}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.tb{background:none;border:none;cursor:pointer;padding:10px 14px;font-family:inherit;font-size:13px;font-weight:500;color:#7d8590;white-space:nowrap;border-bottom:2px solid transparent}
+.tb:hover{color:#e6edf3}.tb.on{color:#58a6ff;border-bottom-color:#58a6ff}
+.card{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:20px}
+.sc{background:linear-gradient(135deg,#161b22,#1c2128);border:1px solid #21262d;border-radius:12px;padding:20px}
+.pb{background:#238636;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500}
+.pb:hover{background:#2ea043}
+.sb{background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:8px 16px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px}
+.inp{background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:inherit;font-size:13px;padding:8px 12px;width:100%;outline:none}
+.inp:focus{border-color:#58a6ff}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:flex-end;justify-content:center;z-index:100}
+@media(min-width:600px){.ov{align-items:center}}
+.mo{background:#161b22;border:1px solid #30363d;border-radius:16px 16px 0 0;padding:24px;width:100%;max-height:92vh;overflow-y:auto}
+@media(min-width:600px){.mo{border-radius:16px;width:520px}}
+.ch{font-family:monospace;font-size:12px;background:#21262d;color:#79c0ff;padding:2px 8px;border-radius:4px}
+.rh:hover td{background:#1c2128!important;cursor:pointer}
+@keyframes sh{0%,100%{opacity:.3}50%{opacity:.7}}
+@media(max-width:860px){.cg{grid-template-columns:1fr!important}}
+@media(max-width:600px){.sg{grid-template-columns:1fr 1fr!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,Fragment} = React;
+const {AreaChart,Area,LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer} = Recharts;
+
+const COLORS = ["#58a6ff","#3fb950","#d29922","#bc8cff","#ff7b72","#ffa657"];
+const SECTORS = ["Technology","ETF","Healthcare","Finance","Consumer","Energy","Industrials","Real Estate","Other"];
+const TABS = ["Portfolio","Winners & Losers","News & Charts","Stock Picks"];
+const fmt = n => n.toLocaleString("en-US",{style:"currency",currency:"USD"});
+const pct = n => (n>=0?"+":"")+n.toFixed(2)+"%";
+
+// ── YOUR CLUB DATA — edit this section to update ──────────────────────────────
+const HOLDINGS = [
+  {id:1, ticker:"AAPL", name:"Apple Inc.", shares:5, avgCost:142.72, currentPrice:142.72, sector:"Technology", color:"#58a6ff",
+   lots:[{id:1,date:"2024-01-15",shares:5,price:142.72,by:"Club"}]},
+  {id:2, ticker:"AMZN", name:"Amazon.com Inc.", shares:5, avgCost:114.81, currentPrice:114.81, sector:"Technology", color:"#3fb950",
+   lots:[{id:1,date:"2024-01-15",shares:5,price:114.81,by:"Club"}]},
+];
+const MEMBERS = [
+  {id:1,name:"Club Member",contributions:1000,joined:"2024-01-15",avatar:"CM"},
+];
+const PICKS = [];
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HIST = {};
+function makeHist(price) {
+  const data=[], now=new Date();
+  let p=price*(0.5+Math.random()*0.3);
+  for(let i=1260;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    if(d.getDay()===0||d.getDay()===6) continue;
+    p=Math.max(1,p*(1+(Math.random()-0.476)*0.022));
+    data.push({date:d.toLocaleDateString("en-US",{month:"short",day:"numeric"}),price:parseFloat(p.toFixed(2))});
+  }
+  if(data.length) data[data.length-1].price=price;
+  return data;
+}
+function getH(ticker,price){
+  if(!HIST[ticker]) HIST[ticker]=makeHist(price);
+  else{const last=HIST[ticker][HIST[ticker].length-1];if(last&&Math.abs(last.price-price)/price>0.01)HIST[ticker]=makeHist(price);}
+  return HIST[ticker];
+}
+
+async function fetchQuotes(tickers){
+  try{
+    const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:512,tools:[{type:"web_search_20250305",name:"web_search"}],system:"Stock price lookup. Search for current prices and return ONLY a JSON object like {AAPL:227.63,AMZN:195.20}. No other text.",messages:[{role:"user",content:"Current stock prices for: "+tickers.join(", ")}]})});
+    const d=await resp.json();
+    const txt=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+    const m=txt.match(/\{[^{}]+\}/);
+    if(m){const obj=JSON.parse(m[0]);const res={};for(const[k,v]of Object.entries(obj)){const n=typeof v==="number"?v:parseFloat(v);if(n>0)res[k]=n;}if(Object.keys(res).length)return res;}
+  }catch(e){console.error(e);}
+  return{};
+}
+
+function Tip({active,payload,label}){
+  if(!active||!payload||!payload.length)return null;
+  return <div style={{background:"#1c2128",border:"1px solid #30363d",borderRadius:8,padding:"8px 14px",fontSize:13}}><div style={{color:"#7d8590",fontSize:11}}>{label}</div><div style={{color:"#e6edf3",fontFamily:"monospace",fontWeight:600}}>{fmt(payload[0].value)}</div></div>;
+}
+
+function Spark({ticker,price,color}){
+  const data=getH(ticker,price).slice(-22);
+  return <ResponsiveContainer width={90} height={36}><AreaChart data={data} margin={{top:2,right:0,bottom:2,left:0}}><defs><linearGradient id={"g"+ticker} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={color} stopOpacity={0.3}/><stop offset="95%" stopColor={color} stopOpacity={0}/></linearGradient></defs><YAxis domain={["auto","auto"]} hide/><Area type="monotone" dataKey="price" stroke={color} strokeWidth={1.5} fill={"url(#g"+ticker+")"} dot={false}/></AreaChart></ResponsiveContainer>;
+}
+
+function Portfolio({holdings,members,onNews}){
+  const [exp,setExp]=useState(null);
+  const tv=holdings.reduce((s,h)=>s+h.shares*h.currentPrice,0);
+  const tc=holdings.reduce((s,h)=>s+h.shares*h.avgCost,0);
+  const g=tv-tc,gp=tc?(g/tc)*100:0;
+  const tcon=members.reduce((s,m)=>s+m.contributions,0);
+  return(
+    <div>
+      <div className="sg" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+        {[{l:"Total Value",v:fmt(tv),s:pct(gp)+" all time",c:"#3fb950"},{l:"Total Gain",v:fmt(g),s:"from "+fmt(tc),c:g>=0?"#3fb950":"#f85149"},{l:"Contributions",v:fmt(tcon),s:members.length+" members",c:"#58a6ff"},{l:"Holdings",v:holdings.length,s:[...new Set(holdings.map(h=>h.sector))].length+" sectors",c:"#d29922"}].map(s=>(
+          <div key={s.l} className="sc"><div style={{fontSize:11,color:"#7d8590",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>{s.l}</div><div style={{fontSize:20,fontWeight:700,color:s.c,fontFamily:"monospace"}}>{s.v}</div><div style={{fontSize:11,color:"#7d8590",marginTop:4}}>{s.s}</div></div>
+        ))}
+      </div>
+      <div className="card" style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"16px 20px",fontWeight:600,fontSize:16}}>Holdings</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,minWidth:580}}>
+            <thead><tr style={{borderBottom:"1px solid #21262d",background:"#0d1117"}}>
+              {["","Asset","Shares","Avg Cost","Price","Value","Gain/Loss"].map((h,i)=><th key={i} style={{padding:"10px 12px",textAlign:"left",color:"#7d8590",fontWeight:500,fontSize:11,textTransform:"uppercase"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {holdings.map(h=>{
+                const mv=h.shares*h.currentPrice,g2=mv-h.shares*h.avgCost,gp2=(g2/(h.shares*h.avgCost))*100,open=exp===h.ticker;
+                return(
+                  <Fragment key={h.id}>
+                    <tr className="rh" onClick={()=>setExp(open?null:h.ticker)} style={{borderBottom:open?"none":"1px solid #21262d"}}>
+                      <td style={{padding:"14px 8px 14px 16px",width:24,color:"#484f58",fontSize:10}}>{open?"▼":"▶"}</td>
+                      <td style={{padding:"14px 12px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:4,height:28,background:h.color,borderRadius:2}}/><div><span className="ch">{h.ticker}</span><div style={{fontSize:11,color:"#7d8590",marginTop:2}}>{h.name}</div></div></div></td>
+                      <td style={{padding:"14px 12px",fontFamily:"monospace",fontSize:13}}>{h.shares}</td>
+                      <td style={{padding:"14px 12px",fontFamily:"monospace",fontSize:13}}>{fmt(h.avgCost)}</td>
+                      <td style={{padding:"14px 12px",fontFamily:"monospace",fontSize:13}}>{fmt(h.currentPrice)}</td>
+                      <td style={{padding:"14px 12px",fontFamily:"monospace",fontSize:13,fontWeight:500}}>{fmt(mv)}</td>
+                      <td style={{padding:"14px 12px"}}><span style={{color:g2>=0?"#3fb950":"#f85149",fontFamily:"monospace",fontSize:13}}>{fmt(g2)} </span><span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:g2>=0?"#1a3a1e":"#3d1b1b",color:g2>=0?"#3fb950":"#f85149",border:"1px solid "+(g2>=0?"#238636":"#da3633")}}>{pct(gp2)}</span></td>
+                    </tr>
+                    {open&&(
+                      <tr><td colSpan={7} style={{background:"#0a0e13",borderBottom:"2px solid #21262d"}}>
+                        <div style={{padding:"14px 20px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                            <div style={{fontSize:13,fontWeight:600}}>Purchase Lots</div>
+                            <button onClick={()=>onNews(h.ticker)} style={{background:h.color+"18",border:"1px solid "+h.color+"55",borderRadius:8,color:h.color,cursor:"pointer",fontSize:12,fontWeight:600,padding:"5px 12px",fontFamily:"inherit"}}>📈 Charts →</button>
+                          </div>
+                          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                            <thead><tr style={{borderBottom:"1px solid #21262d"}}>{["Date","Shares","Buy Price","Cost","Value","Gain","By"].map(c=><th key={c} style={{padding:"6px 10px",textAlign:"left",color:"#484f58",fontWeight:500,fontSize:11}}>{c}</th>)}</tr></thead>
+                            <tbody>
+                              {h.lots.map((l,i)=>{
+                                const lc=l.shares*l.price,lv=l.shares*h.currentPrice,lg=lv-lc,lgp=(lg/lc)*100;
+                                return <tr key={l.id} style={{borderBottom:i<h.lots.length-1?"1px solid #161b22":"none"}}><td style={{padding:"8px 10px",color:"#7d8590",fontSize:12}}>{l.date}</td><td style={{padding:"8px 10px",fontFamily:"monospace"}}>{l.shares}</td><td style={{padding:"8px 10px",fontFamily:"monospace"}}>{fmt(l.price)}</td><td style={{padding:"8px 10px",fontFamily:"monospace",color:"#8b949e"}}>{fmt(lc)}</td><td style={{padding:"8px 10px",fontFamily:"monospace"}}>{fmt(lv)}</td><td style={{padding:"8px 10px"}}><span style={{color:lg>=0?"#3fb950":"#f85149",fontFamily:"monospace",fontSize:12}}>{lg>=0?"▲":"▼"} {fmt(Math.abs(lg))}</span><span style={{marginLeft:6,fontSize:11,background:lg>=0?"#1a3a1e":"#3d1b1b",color:lg>=0?"#3fb950":"#f85149",padding:"1px 6px",borderRadius:10}}>{pct(lgp)}</span></td><td style={{padding:"8px 10px",fontSize:12,color:"#8b949e"}}>{l.by}</td></tr>;
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WinnersLosers({holdings,onNews}){
+  const [view,setView]=useState("30d");
+  if(!holdings.length)return <div style={{textAlign:"center",color:"#7d8590",padding:"60px"}}>No holdings yet.</div>;
+  const ranked=holdings.map(h=>{
+    const hi=getH(h.ticker,h.currentPrice),p30=hi[Math.max(0,hi.length-23)]?.price??h.avgCost;
+    return{...h,tr:((h.currentPrice-h.avgCost)/h.avgCost)*100,mr:((h.currentPrice-p30)/p30)*100,tga:(h.currentPrice-h.avgCost)*h.shares,mga:(h.currentPrice-p30)*h.shares,p30};
+  });
+  const list=[...ranked].sort((a,b)=>view==="total"?b.tr-a.tr:b.mr-a.mr);
+  const rk=view==="total"?"tr":"mr",gk=view==="total"?"tga":"mga";
+  const M=["🥇","🥈","🥉"];
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div style={{fontSize:20,fontWeight:700}}>Scorecard</div>
+        <div style={{display:"flex",background:"#161b22",border:"1px solid #21262d",borderRadius:10,padding:4,gap:4}}>
+          {[{k:"30d",l:"Last 30 Days"},{k:"total",l:"Total Return"}].map(o=>(
+            <button key={o.k} onClick={()=>setView(o.k)} style={{padding:"7px 16px",borderRadius:7,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:500,background:view===o.k?(o.k==="30d"?"#1f6feb":"#9e6a03"):"transparent",color:view===o.k?"#fff":"#7d8590"}}>{o.l}</button>
+          ))}
+        </div>
+      </div>
+      {list.length>=2&&(
+        <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:12,marginBottom:32}}>
+          {[1,0].slice(0,list.length).map(rank=>{
+            if(rank>=list.length)return null;
+            const h=list[rank],ret=h[rk],gv=h[gk],hts=[110,150];
+            return(
+              <div key={h.ticker} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1,maxWidth:260}}>
+                <div style={{background:"#161b22",border:"1px solid "+h.color+"44",borderRadius:14,padding:"16px 18px",width:"100%",marginBottom:8}}>
+                  <div style={{fontSize:11,color:["#d29922","#8b949e"][rank],fontWeight:700,textTransform:"uppercase",marginBottom:10}}>{["🥇 Top","🥈 2nd"][rank]}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><div style={{width:5,height:32,background:h.color,borderRadius:3}}/><div><span className="ch" style={{color:h.color,background:h.color+"18"}}>{h.ticker}</span><div style={{fontSize:11,color:"#7d8590",marginTop:3}}>{h.name}</div></div></div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}><div><div style={{fontSize:22,fontWeight:700,color:ret>=0?"#3fb950":"#f85149",fontFamily:"monospace"}}>{pct(ret)}</div><div style={{fontSize:12,color:ret>=0?"#238636":"#da3633",marginTop:4}}>{ret>=0?"▲":"▼"} {fmt(Math.abs(gv))}</div></div><Spark ticker={h.ticker} price={h.currentPrice} color={h.color}/></div>
+                </div>
+                <div style={{width:"100%",height:hts[rank],borderRadius:"8px 8px 0 0",background:"linear-gradient(180deg,"+h.color+"33,"+h.color+"11)",border:"1px solid "+h.color+"33",borderBottom:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:rank===0?28:22}}>{M[rank]}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="card" style={{padding:0,overflow:"hidden"}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,minWidth:500}}>
+            <thead><tr style={{background:"#0d1117",borderBottom:"1px solid #21262d"}}>
+              {["Rank","Holding","Price",view==="30d"?"30d Ago":"Avg Cost","Return","Gain","",""].map((h,i)=><th key={i} style={{padding:"10px 14px",textAlign:"left",color:"#484f58",fontWeight:500,fontSize:11,textTransform:"uppercase"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {list.map((h,i)=>{
+                const ret=h[rk],gv=h[gk],ref=view==="total"?h.avgCost:h.p30;
+                return(
+                  <tr key={h.ticker} className="rh" style={{borderBottom:i<list.length-1?"1px solid #21262d":"none"}}>
+                    <td style={{padding:"12px 14px",width:50}}>{i<3?<span style={{fontSize:18}}>{M[i]}</span>:<span style={{color:"#484f58",fontFamily:"monospace",fontWeight:700}}>{"#"+(i+1)}</span>}</td>
+                    <td style={{padding:"12px 14px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:4,height:32,background:h.color,borderRadius:2}}/><div><span className="ch">{h.ticker}</span><div style={{fontSize:11,color:"#7d8590",marginTop:2}}>{h.name}</div></div></div></td>
+                    <td style={{padding:"12px 14px",fontFamily:"monospace",fontSize:13}}>{fmt(h.currentPrice)}</td>
+                    <td style={{padding:"12px 14px",fontFamily:"monospace",fontSize:13,color:"#7d8590"}}>{fmt(ref)}</td>
+                    <td style={{padding:"12px 14px"}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:60,height:6,background:"#21262d",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(100,Math.abs(ret)*2)+"%",background:ret>=0?"#238636":"#da3633",borderRadius:3}}/></div><span style={{color:ret>=0?"#3fb950":"#f85149",fontFamily:"monospace",fontSize:13,fontWeight:600}}>{pct(ret)}</span></div></td>
+                    <td style={{padding:"12px 14px"}}><span style={{color:gv>=0?"#3fb950":"#f85149",fontFamily:"monospace",fontSize:13}}>{gv>=0?"+":""}{fmt(gv)}</span></td>
+                    <td style={{padding:"12px 14px"}}><Spark ticker={h.ticker} price={h.currentPrice} color={h.color}/></td>
+                    <td style={{padding:"12px 14px"}}><button onClick={()=>onNews(h.ticker)} style={{background:h.color+"18",border:"1px solid "+h.color+"44",borderRadius:6,color:h.color,cursor:"pointer",fontSize:11,fontWeight:600,padding:"5px 10px",fontFamily:"inherit"}}>Charts →</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewsCharts({holdings,initTicker}){
+  const [sel,setSel]=useState(initTicker||(holdings[0]?.ticker??""));
+  const [range,setRange]=useState("3M");
+  const [ctype,setCtype]=useState("area");
+  const [ncache,setNcache]=useState({});
+  const [nload,setNload]=useState({});
+  useEffect(()=>{if(initTicker)setSel(initTicker);},[initTicker]);
+  const h=holdings.find(x=>x.ticker===sel)||holdings[0];
+  if(!h)return <div style={{textAlign:"center",color:"#7d8590",padding:"60px"}}>No holdings yet.</div>;
+  const ah=getH(h.ticker,h.currentPrice);
+  const rm={"1W":5,"1M":22,"3M":66,"1Y":252,"5Y":ah.length};
+  const sl=ah.slice(-rm[range]);
+  const sp=sl[0]?.price??0,ep=sl[sl.length-1]?.price??h.currentPrice;
+  const ch=ep-sp,chp=sp?(ch/sp)*100:0,up=ch>=0;
+  const ti=Math.max(1,Math.floor(sl.length/6));
+  const SC={bullish:"#3fb950",bearish:"#f85149",neutral:"#8b949e"};
+  const SB={bullish:"#1a3a1e",bearish:"#3d1b1b",neutral:"#21262d"};
+  const SD={bullish:"#238636",bearish:"#da3633",neutral:"#30363d"};
+  async function loadNews(ticker){
+    if(ncache[ticker]!==undefined)return;
+    setNload(p=>({...p,[ticker]:true}));
+    try{
+      const hh=holdings.find(x=>x.ticker===ticker);
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:"Financial news generator. Respond ONLY with a JSON array. Each item: {id,headline,summary,sentiment,source,time,tag}. sentiment must be bullish, bearish, or neutral. No markdown.",messages:[{role:"user",content:"Generate 5 financial news items for "+(hh?.name??ticker)+" ("+ticker+"). Price $"+(hh?.currentPrice??0)+". Mix sentiments."}]})});
+      const data=await resp.json();
+      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+      setNcache(p=>({...p,[ticker]:JSON.parse(txt.replace(/```json|```/g,"").trim())}));
+    }catch(_){setNcache(p=>({...p,[ticker]:[]}))}
+    setNload(p=>({...p,[ticker]:false}));
+  }
+  useEffect(()=>{loadNews(h.ticker);},[h.ticker]);
+  const news=ncache[sel]??[],loading=nload[sel];
+  return(
+    <div>
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        {holdings.map(hh=>{
+          const g=((hh.currentPrice-hh.avgCost)/hh.avgCost)*100,act=sel===hh.ticker;
+          return <button key={hh.ticker} onClick={()=>setSel(hh.ticker)} style={{background:act?"#1c2128":"#161b22",border:"1px solid "+(act?hh.color:"#21262d"),borderRadius:12,padding:"10px 14px",cursor:"pointer",textAlign:"left",minWidth:110,outline:"none"}}><div style={{marginBottom:4}}><span className="ch" style={{color:hh.color,background:hh.color+"18"}}>{hh.ticker}</span></div><div style={{fontSize:14,fontWeight:600,color:"#e6edf3",fontFamily:"monospace"}}>{fmt(hh.currentPrice)}</div><div style={{fontSize:11,color:g>=0?"#3fb950":"#f85149",marginTop:2}}>{pct(g)}</div></button>;
+        })}
+      </div>
+      <div className="cg" style={{display:"grid",gridTemplateColumns:"1fr 350px",gap:20}}>
+        <div className="card">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:10}}>
+            <div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}><span style={{fontSize:17,fontWeight:700}}>{h.name}</span><span className="ch" style={{color:h.color,background:h.color+"18"}}>{h.ticker}</span></div><div style={{display:"flex",alignItems:"baseline",gap:10}}><span style={{fontSize:26,fontWeight:700,fontFamily:"monospace"}}>{fmt(ep)}</span><span style={{fontSize:13,color:up?"#3fb950":"#f85149",fontFamily:"monospace",fontWeight:600}}>{up?"▲":"▼"} {fmt(Math.abs(ch))} ({pct(chp)})</span></div></div>
+            <div style={{display:"flex",gap:6}}>{["area","line"].map(ct=><button key={ct} onClick={()=>setCtype(ct)} style={{background:ctype===ct?"#21262d":"transparent",border:"1px solid #30363d",borderRadius:6,color:ctype===ct?"#e6edf3":"#7d8590",cursor:"pointer",fontSize:12,padding:"5px 10px",fontFamily:"inherit"}}>{ct==="area"?"Area":"Line"}</button>)}</div>
+          </div>
+          <div style={{display:"flex",gap:4,marginBottom:14,flexWrap:"wrap"}}>
+            {["1W","1M","3M","1Y","5Y"].map(r=><button key={r} onClick={()=>setRange(r)} style={{background:range===r?h.color+"22":"transparent",border:"1px solid "+(range===r?h.color:"#30363d"),borderRadius:6,color:range===r?h.color:"#7d8590",cursor:"pointer",fontSize:12,fontWeight:600,padding:"4px 12px",fontFamily:"monospace",outline:"none"}}>{r}</button>)}
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            {ctype==="area"?(
+              <AreaChart data={sl} margin={{top:4,right:4,bottom:0,left:0}}>
+                <defs><linearGradient id={"f"+sel} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={h.color} stopOpacity={0.3}/><stop offset="95%" stopColor={h.color} stopOpacity={0.02}/></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false}/>
+                <XAxis dataKey="date" tick={{fill:"#7d8590",fontSize:11}} tickLine={false} axisLine={false} interval={ti}/>
+                <YAxis tick={{fill:"#7d8590",fontSize:11}} tickLine={false} axisLine={false} tickFormatter={v=>"$"+v.toFixed(0)} width={55} domain={["auto","auto"]}/>
+                <Tooltip content={<Tip/>}/>
+                <Area type="monotone" dataKey="price" stroke={h.color} strokeWidth={2.5} fill={"url(#f"+sel+")"} dot={false} activeDot={{r:5,fill:h.color,strokeWidth:0}}/>
+              </AreaChart>
+            ):(
+              <LineChart data={sl} margin={{top:4,right:4,bottom:0,left:0}}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false}/>
+                <XAxis dataKey="date" tick={{fill:"#7d8590",fontSize:11}} tickLine={false} axisLine={false} interval={ti}/>
+                <YAxis tick={{fill:"#7d8590",fontSize:11}} tickLine={false} axisLine={false} tickFormatter={v=>"$"+v.toFixed(0)} width={55} domain={["auto","auto"]}/>
+                <Tooltip content={<Tip/>}/>
+                <Line type="monotone" dataKey="price" stroke={h.color} strokeWidth={2.5} dot={false} activeDot={{r:5,fill:h.color,strokeWidth:0}}/>
+              </LineChart>
+            )}
+          </ResponsiveContainer>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:16,paddingTop:16,borderTop:"1px solid #21262d"}}>
+            {[{l:"Shares",v:h.shares},{l:"Avg Cost",v:fmt(h.avgCost)},{l:"Mkt Value",v:fmt(h.shares*h.currentPrice)},{l:"P&L",v:fmt((h.currentPrice-h.avgCost)*h.shares),c:h.currentPrice>=h.avgCost?"#3fb950":"#f85149"}].map(s=>(
+              <div key={s.l} style={{textAlign:"center"}}><div style={{fontSize:10,color:"#7d8590",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.6px"}}>{s.l}</div><div style={{fontSize:13,fontWeight:600,fontFamily:"monospace",color:s.c||"#e6edf3"}}>{s.v}</div></div>
+            ))}
+          </div>
+        </div>
+        <div className="card" style={{display:"flex",flexDirection:"column",maxHeight:540,padding:16}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexShrink:0}}>
+            <div><div style={{fontWeight:600}}>News · {sel}</div><div style={{fontSize:11,color:"#7d8590",marginTop:2}}>AI-generated</div></div>
+            <button onClick={()=>{setNcache(p=>{const n={...p};delete n[sel];return n;});setTimeout(()=>loadNews(sel),50);}} style={{background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#7d8590",cursor:"pointer",fontSize:12,padding:"5px 10px",fontFamily:"inherit"}}>↻</button>
+          </div>
+          <div style={{overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:10}}>
+            {loading?Array.from({length:4}).map((_,i)=>(
+              <div key={i} style={{background:"#0d1117",borderRadius:10,padding:14}}><div style={{height:10,background:"#21262d",borderRadius:4,marginBottom:10,width:(70+i*5)+"%",animation:"sh 1.5s ease-in-out infinite"}}/><div style={{height:9,background:"#21262d",borderRadius:4,width:"55%",animation:"sh 1.5s ease-in-out infinite"}}/></div>
+            )):news.length===0?(
+              <div style={{textAlign:"center",color:"#7d8590",padding:"30px 0",fontSize:14}}><div style={{fontSize:28,marginBottom:8}}>📰</div>Click ↻ to load</div>
+            ):news.map((item,i)=>(
+              <div key={item.id??i} style={{background:"#0d1117",border:"1px solid "+(SD[item.sentiment]??"#30363d"),borderLeft:"3px solid "+(SC[item.sentiment]??"#30363d"),borderRadius:10,padding:12}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}><span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",background:SB[item.sentiment],color:SC[item.sentiment],padding:"2px 7px",borderRadius:20,border:"1px solid "+(SD[item.sentiment]??"")+""}}>{item.sentiment}</span>{item.tag&&<span style={{fontSize:10,background:"#21262d",color:"#8b949e",padding:"2px 7px",borderRadius:20}}>{item.tag}</span>}<span style={{fontSize:10,color:"#484f58",marginLeft:"auto"}}>{item.time}</span></div>
+                <div style={{fontSize:13,fontWeight:600,color:"#e6edf3",lineHeight:1.5,marginBottom:5}}>{item.headline}</div>
+                <div style={{fontSize:12,color:"#7d8590",lineHeight:1.6}}>{item.summary}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockPicks({picks}){
+  if(!picks.length)return <div style={{textAlign:"center",color:"#7d8590",padding:"60px"}}><div style={{fontSize:32,marginBottom:12}}>📋</div>No stock picks yet.</div>;
+  return(
+    <div>
+      <div style={{fontWeight:600,fontSize:18,marginBottom:20}}>Stock Picks</div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {picks.map(p=>{
+          const up=p.target&&p.price?((p.target-p.price)/p.price*100):null;
+          return(
+            <div key={p.id} className="card" style={{borderLeft:"3px solid "+(up>=0?"#238636":"#da3633")}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}><span className="ch" style={{fontSize:14,padding:"3px 10px"}}>{p.ticker}</span><div><div style={{fontWeight:600}}>{p.name}</div><div style={{fontSize:12,color:"#7d8590"}}>by {p.by} · {p.date}</div></div></div>
+                <div style={{textAlign:"right"}}>{up!==null&&<div style={{color:up>=0?"#3fb950":"#f85149",fontFamily:"monospace",fontWeight:600,fontSize:15}}>{pct(up)} upside</div>}{p.target&&<div style={{fontSize:12,color:"#7d8590"}}>Target: {fmt(p.target)}</div>}</div>
+              </div>
+              <div style={{fontSize:13,color:"#c9d1d9",lineHeight:1.6,padding:"10px 14px",background:"#0d1117",borderRadius:8}}>💡 {p.thesis}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [tab,setTab]=useState("Portfolio");
+  const [nt,setNt]=useState(null);
+  const [holdings,setHoldings]=useState(HOLDINGS);
+  const [qs,setQs]=useState("idle");
+
+  useEffect(()=>{
+    (async()=>{
+      setQs("loading");
+      try{
+        const q=await fetchQuotes(holdings.map(h=>h.ticker));
+        if(Object.keys(q).length){
+          Object.keys(q).forEach(tk=>{delete HIST[tk];});
+          setHoldings(prev=>prev.map(h=>q[h.ticker]?{...h,currentPrice:q[h.ticker]}:h));
+          setQs("ok");
+        }else setQs("error");
+      }catch(_){setQs("error");}
+    })();
+  },[]);
+
+  async function refresh(){
+    setQs("loading");
+    try{
+      const q=await fetchQuotes(holdings.map(h=>h.ticker));
+      if(Object.keys(q).length){Object.keys(q).forEach(tk=>{delete HIST[tk];});setHoldings(prev=>prev.map(h=>q[h.ticker]?{...h,currentPrice:q[h.ticker]}:h));setQs("ok");}
+      else setQs("error");
+    }catch(_){setQs("error");}
+  }
+
+  const tv=holdings.reduce((s,h)=>s+h.shares*h.currentPrice,0);
+
+  return(
+    <div style={{fontFamily:"'DM Sans',sans-serif",background:"#0d1117",minHeight:"100vh",color:"#e6edf3"}}>
+      <div style={{borderBottom:"1px solid #21262d",position:"sticky",top:0,background:"#0d1117",zIndex:50}}>
+        <div style={{maxWidth:1200,margin:"0 auto",padding:"0 16px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 0 0",flexWrap:"wrap",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:34,height:34,background:"linear-gradient(135deg,#1f6feb,#58a6ff)",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📈</div>
+              <div><div style={{fontSize:16,fontWeight:600}}>M Club</div><div style={{fontSize:11,color:"#7d8590"}}>{fmt(tv)} portfolio</div></div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {qs==="loading"&&<span style={{fontSize:11,color:"#d29922",background:"#3a2c10",border:"1px solid #9e6a03",padding:"3px 10px",borderRadius:20}}>⟳ Quotes…</span>}
+              {qs==="ok"&&<span style={{fontSize:11,color:"#3fb950",background:"#1a3a1e",border:"1px solid #238636",padding:"3px 10px",borderRadius:20,display:"flex",alignItems:"center",gap:5}}>● Live <button onClick={refresh} style={{background:"none",border:"none",color:"#3fb950",cursor:"pointer",fontSize:13,padding:0}}>↻</button></span>}
+              {qs==="error"&&<button onClick={refresh} style={{fontSize:11,color:"#f85149",background:"#3d1b1b",border:"1px solid #da3633",padding:"3px 10px",borderRadius:20,cursor:"pointer",fontFamily:"inherit"}}>⚠ Retry</button>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:0,marginTop:8,overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            {TABS.map(t=><button key={t} className={"tb"+(tab===t?" on":"")} onClick={()=>setTab(t)}>{t}</button>)}
+          </div>
+        </div>
+      </div>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:"20px 16px"}}>
+        {tab==="Portfolio"&&<Portfolio holdings={holdings} members={MEMBERS} onNews={t=>{setNt(t);setTab("News & Charts");}}/>}
+        {tab==="Winners & Losers"&&<WinnersLosers holdings={holdings} onNews={t=>{setNt(t);setTab("News & Charts");}}/>}
+        {tab==="News & Charts"&&<NewsCharts holdings={holdings} initTicker={nt}/>}
+        {tab==="Stock Picks"&&<StockPicks picks={PICKS}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
