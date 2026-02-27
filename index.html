@@ -51,9 +51,9 @@ const pct = n => (n>=0?"+":"")+n.toFixed(2)+"%";
 
 // ── YOUR CLUB DATA — edit this section to update ──────────────────────────────
 const HOLDINGS = [
-  {id:1, ticker:"AAPL", name:"Apple Inc.", shares:5, avgCost:142.72, currentPrice:142.72, sector:"Technology", color:"#58a6ff",
+  {id:1, ticker:"AAPL", name:"Apple Inc.", shares:5, avgCost:142.72, currentPrice:274.23, sector:"Technology", color:"#58a6ff",
    lots:[{id:1,date:"2024-01-15",shares:5,price:142.72,by:"Club"}]},
-  {id:2, ticker:"AMZN", name:"Amazon.com Inc.", shares:5, avgCost:114.81, currentPrice:114.81, sector:"Technology", color:"#3fb950",
+  {id:2, ticker:"AMZN", name:"Amazon.com Inc.", shares:5, avgCost:114.81, currentPrice:210.64, sector:"Technology", color:"#3fb950",
    lots:[{id:1,date:"2024-01-15",shares:5,price:114.81,by:"Club"}]},
 ];
 const MEMBERS = [
@@ -83,13 +83,43 @@ function getH(ticker,price){
 
 async function fetchQuotes(tickers){
   try{
-    const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:512,tools:[{type:"web_search_20250305",name:"web_search"}],system:"Stock price lookup. Search for current prices and return ONLY a JSON object like {AAPL:227.63,AMZN:195.20}. No other text.",messages:[{role:"user",content:"Current stock prices for: "+tickers.join(", ")}]})});
-    const d=await resp.json();
-    const txt=(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
-    const m=txt.match(/\{[^{}]+\}/);
-    if(m){const obj=JSON.parse(m[0]);const res={};for(const[k,v]of Object.entries(obj)){const n=typeof v==="number"?v:parseFloat(v);if(n>0)res[k]=n;}if(Object.keys(res).length)return res;}
+    const PROXY="https://api.allorigins.win/get?url=";
+    const results={};
+    await Promise.all(tickers.map(async tk=>{
+      try{
+        const url=encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/"+tk+"?interval=1d&range=1d");
+        const r=await fetch(PROXY+url);
+        const d=await r.json();
+        const parsed=JSON.parse(d.contents);
+        const price=parsed?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if(price) results[tk]=parseFloat(price.toFixed(2));
+      }catch(_){}
+    }));
+    return results;
   }catch(e){console.error(e);}
   return{};
+}
+
+async function fetchNews(ticker){
+  try{
+    const PROXY="https://api.allorigins.win/get?url=";
+    const url=encodeURIComponent("https://feeds.finance.yahoo.com/rss/2.0/headline?s="+ticker+"&region=US&lang=en-US");
+    const r=await fetch(PROXY+url);
+    const d=await r.json();
+    const parser=new DOMParser();
+    const xml=parser.parseFromString(d.contents,"text/xml");
+    const items=Array.from(xml.querySelectorAll("item")).slice(0,6);
+    return items.map((item,i)=>({
+      id:i,
+      headline:item.querySelector("title")?.textContent||"",
+      summary:item.querySelector("description")?.textContent?.replace(/<[^>]*>/g,"")||"",
+      sentiment:"neutral",
+      source:"Yahoo Finance",
+      time:new Date(item.querySelector("pubDate")?.textContent||"").toLocaleDateString("en-US",{month:"short",day:"numeric"}),
+      tag:"News",
+      link:item.querySelector("link")?.textContent||""
+    }));
+  }catch(e){console.error(e);return[];}
 }
 
 function Tip({active,payload,label}){
@@ -255,13 +285,8 @@ function NewsCharts({holdings,initTicker}){
   async function loadNews(ticker){
     if(ncache[ticker]!==undefined)return;
     setNload(p=>({...p,[ticker]:true}));
-    try{
-      const hh=holdings.find(x=>x.ticker===ticker);
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:"Financial news generator. Respond ONLY with a JSON array. Each item: {id,headline,summary,sentiment,source,time,tag}. sentiment must be bullish, bearish, or neutral. No markdown.",messages:[{role:"user",content:"Generate 5 financial news items for "+(hh?.name??ticker)+" ("+ticker+"). Price $"+(hh?.currentPrice??0)+". Mix sentiments."}]})});
-      const data=await resp.json();
-      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
-      setNcache(p=>({...p,[ticker]:JSON.parse(txt.replace(/```json|```/g,"").trim())}));
-    }catch(_){setNcache(p=>({...p,[ticker]:[]}))}
+    const items=await fetchNews(ticker);
+    setNcache(p=>({...p,[ticker]:items}));
     setNload(p=>({...p,[ticker]:false}));
   }
   useEffect(()=>{loadNews(h.ticker);},[h.ticker]);
@@ -322,7 +347,7 @@ function NewsCharts({holdings,initTicker}){
             ):news.map((item,i)=>(
               <div key={item.id??i} style={{background:"#0d1117",border:"1px solid "+(SD[item.sentiment]??"#30363d"),borderLeft:"3px solid "+(SC[item.sentiment]??"#30363d"),borderRadius:10,padding:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}><span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",background:SB[item.sentiment],color:SC[item.sentiment],padding:"2px 7px",borderRadius:20,border:"1px solid "+(SD[item.sentiment]??"")+""}}>{item.sentiment}</span>{item.tag&&<span style={{fontSize:10,background:"#21262d",color:"#8b949e",padding:"2px 7px",borderRadius:20}}>{item.tag}</span>}<span style={{fontSize:10,color:"#484f58",marginLeft:"auto"}}>{item.time}</span></div>
-                <div style={{fontSize:13,fontWeight:600,color:"#e6edf3",lineHeight:1.5,marginBottom:5}}>{item.headline}</div>
+                <div style={{fontSize:13,fontWeight:600,color:"#e6edf3",lineHeight:1.5,marginBottom:5}}>{item.link?<a href={item.link} target="_blank" rel="noopener noreferrer" style={{color:"#e6edf3",textDecoration:"none"}}>{item.headline} ↗</a>:item.headline}</div>
                 <div style={{fontSize:12,color:"#7d8590",lineHeight:1.6}}>{item.summary}</div>
               </div>
             ))}
